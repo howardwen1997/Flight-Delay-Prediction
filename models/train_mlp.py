@@ -6,16 +6,18 @@ from FlightMLP import FlightMLP
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import numpy as np
 from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
 
 # hyperparams
 #######################
 batchsize = 16
-learning_rate = 0.001
-max_epochs = 20
-pos_weight = 1
+learning_rate = 1e-3
+max_epochs = 200
+pos_weight = 3 # 3x as many not-delayed flights
 #######################
 
 # get data
+#######################
 data = np.load('data/airline_final.npy')
 train_data, test_data = train_test_split(data, test_size=0.2, random_state=42)
 data = None # free up memory
@@ -30,14 +32,15 @@ test_data = None
 
 n_train = train_dataset.__len__()
 n_test = test_dataset.__len__()
+#######################
 
-mlp = FlightMLP(learning_rate=1e-3, max_epochs=10)
-
+mlp = FlightMLP()
 criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight), reduction='sum')
-optimizer = torch.optim.Adam(lr=learning_rate, params=mlp.parameters())
+optimizer = torch.optim.SGD(params=mlp.parameters(), lr=learning_rate)
 
+epoch_list = np.arange(1, max_epochs+1)
+losses = np.zeros(max_epochs)
 for epoch in range(max_epochs):
-    lossval = 0
     correct = 0
     for i, batch in enumerate(iter(train_dataloader)):
         X = batch['features'].float()
@@ -51,12 +54,44 @@ for epoch in range(max_epochs):
         loss.backward()
         optimizer.step()
         
-        lossval += loss.item()
+        losses[epoch] += loss.item()
         correct += (labels_pred == labels).sum()
+   
+    losses[epoch] = losses[epoch]/n_train 
+    print(f'Epoch {epoch_list[epoch]}: loss {losses[epoch]} accuracy {correct/n_train:>7f}')
     
-    print(f'Epoch {epoch}: loss {lossval/n_train} accuracy {correct/n_train}')
+    # print test set metrics
+    if epoch % 25 == 0:
+        with torch.no_grad():
+            test_label = test_dataset.data[:, -1]
+            test_pred = torch.sigmoid(mlp(torch.tensor(test_dataset.data[:, :-1]).float())).round().detach().numpy()
+
+            precision, recall, f1, support = precision_recall_fscore_support(test_label, test_pred)
+            accuracy = accuracy_score(test_label, test_pred)
+
+            print('precision: ', precision[1])
+            print('recall: ', recall[1])
+            print('f1: ', f1[1])
+            print('accuracy', accuracy)
+        
 
 # test metrics
 test_label = test_dataset.data[:, -1]
 test_pred = torch.sigmoid(mlp(torch.tensor(test_dataset.data[:, :-1]).float())).round().detach().numpy()
-print(precision_recall_fscore_support(test_label, test_pred))
+
+precision, recall, f1, support = precision_recall_fscore_support(test_label, test_pred)
+accuracy = accuracy_score(test_label, test_pred)
+
+print('precision: ', precision[1])
+print('recall: ', recall[1])
+print('f1: ', f1[1])
+print('accuracy', accuracy)
+
+# plot loss
+losses = losses[:epoch+1]
+epochs_list = epoch_list[:epoch+1]
+
+plt.plot(epoch_list, losses)
+plt.xlabel('Epoch')
+plt.ylabel('Avg. Training Loss')
+plt.savefig('plots/mlp_loss.png')
