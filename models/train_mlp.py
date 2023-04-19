@@ -15,6 +15,7 @@ learning_rate = 1e-3
 max_epochs = 200
 pos_weight = 3 # 3x as many not-delayed flights
 patience_time = 10 # every 10 epochs check loss on validation set, early stopping if loss increases
+model_name = 'weights/mlp.pt'
 #######################
 
 # get data
@@ -48,6 +49,8 @@ optimizer = torch.optim.SGD(params=mlp.parameters(), lr=learning_rate)
 epoch_list = np.arange(1, max_epochs+1)
 losses = np.zeros(max_epochs)
 valid_losses = np.zeros(max_epochs)
+weights = [] # save weights
+
 for epoch in range(max_epochs):
     correct = 0
     for i, batch in enumerate(iter(train_dataloader)):
@@ -66,15 +69,21 @@ for epoch in range(max_epochs):
         correct += (labels_pred == labels).sum()
    
     losses[epoch] = losses[epoch]/n_train 
-    print(f'Epoch {epoch_list[epoch]}: loss {losses[epoch]} accuracy {correct/n_train:>7f}')
+    
     with torch.no_grad():
         valid_labels = torch.tensor(validation_dataset.data[:,-1])
-        valid_pred = torch.sigmoid(mlp(torch.tensor(validation_dataset.data[:, :-1]).float())).round().reshape(-1)
-        valid_loss = criterion(valid_pred, valid_labels)
+        valid_pred_logit = mlp(torch.tensor(validation_dataset.data[:, :-1]).float()).round().reshape(-1)
+        valid_loss = criterion(valid_pred_logit, valid_labels)
         valid_losses[epoch] = valid_loss.item()/n_validation
     
+    # save weights
+    weights.append(mlp.state_dict())
+    weights = weights[-patience_time:]
+
     if epoch > patience_time:
         if valid_losses[epoch] > valid_losses[epoch - patience_time]:
+            print('Stopping early\n')
+            torch.save(weights[0], model_name)
             break
 
     # print test set metrics
@@ -90,7 +99,10 @@ for epoch in range(max_epochs):
             print('recall: ', recall[1])
             print('f1: ', f1[1])
             print('accuracy', accuracy)
-        
+    
+    print(f'Epoch {epoch_list[epoch]}: loss: {losses[epoch]:>7f} accuracy: {correct/n_train:>7f} Val loss: {valid_losses[epoch]:.7f}')
+       
+    torch.save(weights[0], model_name)
 
 # test metrics
 test_label = test_dataset.data[:, -1]
@@ -107,10 +119,10 @@ print('accuracy', accuracy)
 # plot loss
 losses = losses[:epoch+1]
 valid_losses = valid_losses[:epoch+1]
-epochs_list = epoch_list[:epoch+1]
+epoch_list = epoch_list[:epoch+1]
 
-plt.plot(epochs_list, losses, label='training loss')
-plt.plot(epochs_list, valid_losses, label='validation loss')
+plt.plot(epoch_list, losses, label='training loss')
+plt.plot(epoch_list, valid_losses, label='validation loss')
 plt.xlabel('Epoch')
 plt.ylabel('Avg. Loss')
 plt.legend()
