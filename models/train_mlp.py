@@ -7,14 +7,15 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import numpy as np
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import pandas as pd
 
 # hyperparams
 #######################
 batchsize = 16
-learning_rate = 1e-3
-max_epochs = 200
+learning_rate = 1e-4
+max_epochs = 2
 pos_weight = 3 # 3x as many not-delayed flights
-patience_time = 10 # every 10 epochs check loss on validation set, early stopping if loss increases
+patience_time = 10 # early stopping
 model_name = 'weights/mlp.pt'
 #######################
 
@@ -47,7 +48,7 @@ criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight), reduction=
 optimizer = torch.optim.SGD(params=mlp.parameters(), lr=learning_rate)
 
 epoch_list = np.arange(1, max_epochs+1)
-losses = np.zeros(max_epochs)
+train_losses = np.zeros(max_epochs)
 valid_losses = np.zeros(max_epochs)
 weights = [] # save weights
 
@@ -65,10 +66,10 @@ for epoch in range(max_epochs):
         loss.backward()
         optimizer.step()
         
-        losses[epoch] += loss.item()
+        train_losses[epoch] += loss.item()
         correct += (labels_pred == labels).sum()
    
-    losses[epoch] = losses[epoch]/n_train 
+    train_losses[epoch] = train_losses[epoch]/n_train 
     
     with torch.no_grad():
         valid_labels = torch.tensor(validation_dataset.data[:,-1])
@@ -100,7 +101,7 @@ for epoch in range(max_epochs):
             print('f1: ', f1[1])
             print('accuracy', accuracy)
     
-    print(f'Epoch {epoch_list[epoch]}: loss: {losses[epoch]:>7f} accuracy: {correct/n_train:>7f} Val loss: {valid_losses[epoch]:.7f}')
+    print(f'Epoch {epoch_list[epoch]}: loss: {train_losses[epoch]:>7f} accuracy: {correct/n_train:>7f} Val loss: {valid_losses[epoch]:.7f}')
        
     torch.save(weights[0], model_name)
 
@@ -116,12 +117,21 @@ print('recall: ', recall[1])
 print('f1: ', f1[1])
 print('accuracy', accuracy)
 
-# plot loss
-losses = losses[:epoch+1]
+# save values
+train_losses = train_losses[:epoch+1]
 valid_losses = valid_losses[:epoch+1]
 epoch_list = epoch_list[:epoch+1]
 
-plt.plot(epoch_list, losses, label='training loss')
+df = pd.DataFrame(
+    {'Epoch' : epoch_list,
+    'Train_loss' :  train_losses,
+    'val_loss' : valid_losses
+    }
+)
+df.to_csv('results/losses.csv', index=False)
+
+# plot loss
+plt.plot(epoch_list, train_losses, label='training loss')
 plt.plot(epoch_list, valid_losses, label='validation loss')
 plt.xlabel('Epoch')
 plt.ylabel('Avg. Loss')
