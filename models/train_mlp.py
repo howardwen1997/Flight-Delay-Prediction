@@ -13,10 +13,9 @@ import pandas as pd
 #######################
 batchsize = 16
 learning_rate = 1e-4
-max_epochs = 10
+max_epochs = 200
 pos_weight = 3 # 3x as many not-delayed flights
 patience_time = 20 # early stopping
-model_name = 'weights/mlp.pt'
 #######################
 
 # get data
@@ -43,8 +42,20 @@ n_validation = validation_dataset.__len__()
 n_test = test_dataset.__len__()
 #######################
 
-layers = [50, 50]
-mlp = FlightMLP(layers, dropout=True)
+# model architecture
+layers = [20, 20]
+dropout=False
+
+model_name = 'weights/layers'
+for layer in layers:
+    model_name +=  '_' + str(layer)
+if dropout:
+    model_name += '_drop'
+model_name += '.pt'
+
+##############################
+
+mlp = FlightMLP(layers, dropout=dropout)
 criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight), reduction='sum')
 optimizer = torch.optim.SGD(params=mlp.parameters(), lr=learning_rate)
 
