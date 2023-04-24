@@ -1,103 +1,139 @@
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
+from sklearn.metrics import precision_recall_fscore_support, roc_auc_score
 
 np.random.seed(2023)
 
 class LSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, batch_size, max_epochs):
+    def __init__(self, input_size, hidden_size, num_layers):
         super(LSTM, self).__init__()
-        self.hidden_size = hidden_size
-        self.batch_size = batch_size
-        self.max_epochs = max_epochs
+        # lstm1, lstm2, linear are all layers in the network
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size, 1)
 
-        # Loss per epoch placeholder
         self.train_loss_epoch = []
         self.train_err_epoch = []
-
-        # lstm1, lstm2, linear are all layers in the network
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=2, batch_first=True)
-        self.linear = nn.Linear(hidden_size, 1)
-        self.sigmoid = nn.Sigmoid()
+        self.val_loss_epoch = []
+        self.val_err_epoch = [] 
         
     def forward(self, input):
-        #print(input.shape)
-        #print(input.view(6, 64 , -1).shape)
         lstm_out, _ = self.lstm(input)
-        lstm_out = self.sigmoid(self.linear(lstm_out))
+        lstm_out = self.linear(lstm_out)
         return lstm_out
 
-    def fit(self, train_loader, criterion, optimizer):
-        # Epoch loop
-        for i in range(1,self.max_epochs+1):
-            train_loss = 0
-            train_err_ct = 0
+    def fit(self, data_loader, criterion, optimizer):
+        train_loss = 0
+        train_err_ct = 0
+        
+        self.train_output_prob_array = []
+        self.train_output_binary_array = []
+        self.train_target_array = []       
+        # Mini batch loop
+        for j, (features, target) in enumerate(data_loader):
+            # Forward pass 
+            output = self.forward(features)
+            # get the loss
+            loss = criterion(output, target)
+            # calculate gradients 
+            loss.backward()
+            #update weights
+            optimizer.step()
+            # zero out the gradients
+            optimizer.zero_grad() 
 
-            # Mini batch loop
-            for j, (features, target) in enumerate(train_loader):
+            # Track the loss and error rate
+            train_loss += loss.item() * target.size(0) * 6
+            with torch.no_grad():
+                train_output_prob_array = output.numpy().reshape(output.size(0)*6)
+                self.train_output_prob_array.extend(list(train_output_prob_array))           
+                train_output_binary_array = (train_output_prob_array > 0.5).astype(int)
+                self.train_output_binary_array.extend(list(train_output_binary_array))
+                
+                train_target_array = target.numpy().reshape(output.size(0)*6)
+                self.train_target_array.extend(list(train_target_array))
+                train_err_ct += sum(train_output_binary_array != train_target_array)
 
-                # Forward pass 
-                output = self.forward(features)
-                # get the loss
-                loss = criterion(output, target)
-                # print(j)
-                # print(output)
-                # print(loss)
-                # print('\n')
-                # calculate gradients 
-                loss.backward()
-                # gradient clipping\n",
-                #torch.nn.utils.clip_grad_norm_(self.lstm.parameters(), max_norm=10, norm_type=2.0)\n",
-                #update weights
-                optimizer.step()
-                # zero out the gradients
-                optimizer.zero_grad() 
+        # calculate training loss per epoch
+        train_loss_mean = train_loss / len(data_loader.dataset) / 6
+        self.train_loss_epoch.append(train_loss_mean)
+        train_err = train_err_ct / len(data_loader.dataset) / 6
+        self.train_err_epoch.append(train_err)
 
-                # Track the loss and error rate
-                train_loss += loss.item() * target.size(0)
-                with torch.no_grad():
-                    train_err_ct += sum((output.numpy().reshape(output.size(0)*6) > 0.5).astype(int) != target.numpy().reshape(output.size(0)*6))
+        # Print/return training loss and error rate in each epoch
+        print(f'Train Loss: {train_loss_mean:.4f}')
+        print(f'Train Accuracy Rate: {(1-train_err)*100:.4f}%')
+        f1_metrics = precision_recall_fscore_support(self.train_target_array, self.train_output_binary_array, average='binary')
+        print(f'Precision: {f1_metrics[0]:.4f}')
+        print(f'Recall: {f1_metrics[1]:.4f}')
+        print(f'F1: {f1_metrics[2]:.4f}\n')
+        #print(f'Train AUC: {roc_auc_score(self.train_target_array, self.train_output_prob_array):.4f}')
 
-            # calculate training loss per epoch
-            train_loss_mean = train_loss / len(train_loader.dataset) / 6
-            self.train_loss_epoch.append(train_loss_mean)
-            train_err = train_err_ct / len(train_loader.dataset) / 6
-            self.train_err_epoch.append(train_err)
+    def predict(self, data_loader, criterion, set):
+        val_loss = 0
+        val_err_ct = 0
 
-            # Print/return training loss and error rate in each epoch
-            print(f'Epoch {i}')
-            print(f'Train Loss: {train_loss_mean:.4f}')
-            print(f'Train Error Rate: {train_err*100:.4f}%\n')
+        self.val_output_prob_array = []
+        self.val_output_binary_array = []
+        self.val_target_array = []
 
-            # Stop training before maximum number of epochs is reached if:
-                # more than 10 epochs have been run
-                # difference in loss from previous epoch < 1e-10
-            # if i > 10:
-            #     if np.abs(self.train_loss_epoch[-1] - self.train_loss_epoch[-2]) < 1e-5:
-            #         break
-
-    def predict(self, test_loader, criterion):
         test_loss = 0
         test_err_ct = 0
+        self.test_output_prob_array = []
+        self.test_output_binary_array = []
+        self.test_target_array = []
 
         with torch.no_grad(): # no backprop step so turn off gradients
-    
-            for j,(features,target) in enumerate(test_loader):
-
+            for j,(features,target) in enumerate(data_loader):
                 # Compute prediction output and loss
                 output = self.forward(features)
                 loss = criterion(output, target)
-
+                
                 # Measure loss and error rate and record
-                test_loss += loss.item() * target.size(0)
-                test_err_ct += sum((output.numpy().reshape(output.size(0)*6) > 0.5).astype(int) != target.numpy().reshape(output.size(0)*6))
+                if set == 'validation':
+                    val_loss += loss.item() * target.size(0) * 6
+                    val_output_prob_array = output.numpy().reshape(output.size(0)*6)
+                    self.val_output_prob_array.extend(list(val_output_prob_array))           
+                    val_output_binary_array = (val_output_prob_array > 0.5).astype(int)
+                    self.val_output_binary_array.extend(list(val_output_binary_array))
+                    
+                    val_target_array = target.numpy().reshape(output.size(0)*6)
+                    self.val_target_array.extend(list(val_target_array))
+                    val_err_ct += sum(val_output_binary_array != val_target_array)
 
-        # Print/return test loss and error rate
-        test_loss_mean = test_loss / len(test_loader.dataset) / 6
-        test_err = test_err_ct / len(test_loader.dataset) / 6
-        print(f'Test Loss: {test_loss_mean:.3f}')
-        print(f'Test Error Rate: {test_err*100:.4f}%\\n')
+                if set == 'test':
+                    test_loss += loss.item() * target.size(0) * 6
+                    test_output_prob_array = output.numpy().reshape(output.size(0)*6)
+                    self.test_output_prob_array.extend(list(test_output_prob_array))           
+                    test_output_binary_array = (test_output_prob_array > 0.5).astype(int)
+                    self.test_output_binary_array.extend(list(test_output_binary_array))
+                    
+                    test_target_array = target.numpy().reshape(output.size(0)*6)
+                    self.test_target_array.extend(list(test_target_array))
+                    test_err_ct += sum(test_output_binary_array != test_target_array)
 
-        return round(test_loss_mean,3), str(round(test_err*100,3)) + "%"                
+        if set == 'validation':
+            val_loss_mean = val_loss / len(data_loader.dataset) / 6
+            self.val_loss_epoch.append(val_loss_mean)
+            val_err = val_err_ct / len(data_loader.dataset) / 6
+            self.val_err_epoch.append(val_err)
+            print(f'Validation Loss: {val_loss_mean:.6f}')
+            print(f'Validation Accuracy Rate: {(1-val_err)*100:.4f}%')
+            f1_metrics = precision_recall_fscore_support(self.val_target_array, self.val_output_binary_array, average='binary')
+            print(f'Validation Precision: {f1_metrics[0]:.4f}')
+            print(f'Validation Recall: {f1_metrics[1]:.4f}')
+            print(f'Validation F1: {f1_metrics[2]:.4f}\n')          
+
+        if set == 'test':
+            test_loss_mean = test_loss / len(data_loader.dataset) / 6
+            test_err = test_err_ct / len(data_loader.dataset) / 6
+            print(f'Test Loss: {test_loss_mean:.6f}')
+            print(f'Test Accuracy Rate: {(1-test_err)*100:.6f}%')
+            f1_metrics = precision_recall_fscore_support(self.test_target_array, self.test_output_binary_array, average='binary')
+            print(f'Test Precision: {f1_metrics[0]:.6f}')
+            print(f'Test Recall: {f1_metrics[1]:.6f}')
+            print(f'Test F1: {f1_metrics[2]:.6f}')
+            print(f'Test AUC: {roc_auc_score(self.test_target_array, self.test_output_prob_array):.6f}\n')
+
+            return f'Accuracy: {(1-test_err)*100:.6f}%, Precision: {f1_metrics[0]:.6f}, Recall: {f1_metrics[1]:.6f}, F1: {f1_metrics[2]:.6f}, AUC: {roc_auc_score(self.test_target_array, self.test_output_prob_array):.6f}'
