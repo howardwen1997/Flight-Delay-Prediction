@@ -14,7 +14,7 @@ data = None # free up memory
 
 lr = LogisticRegression(
     random_state=42, 
-    n_jobs=12, 
+    n_jobs=-1, 
     class_weight='balanced', 
 )
 

@@ -13,8 +13,9 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 data = None # free up memory
 
 rf = RandomForestClassifier(
-    n_estimators=400,
-    max_depth=40,
+    n_estimators=200,
+    class_weight='balanced',
+#    max_depth=40,
     random_state=42,
     verbose=2,
     n_jobs=-1,
@@ -27,6 +28,7 @@ y_pred = rf.predict(X_test)
 precision, recall, f1, support = precision_recall_fscore_support(y_test, y_pred)
 accuracy = accuracy_score(y_test, y_pred)
 
+print('feature importance', rf.feature_importances_)
 print('precision: ', precision[1])
 print('recall: ', recall[1])
 print('f1: ', f1[1])

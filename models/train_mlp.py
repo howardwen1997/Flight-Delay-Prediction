@@ -41,9 +41,9 @@ n_test = test_dataset.__len__()
 # Training params
 #######################
 learning_rate = 1e-4
-max_epochs = 500
+max_epochs = 150
 pos_weight = 3 # 3x as many not-delayed flights
-patience_time = 20 # early stopping
+patience_time = 30 # early stopping
 #######################
 
 # model architecture
@@ -59,11 +59,13 @@ layer_set = [
     [50, 50, 50],
     [100, 100, 100],
     [200, 200, 200],
+    [400, 400, 400],
+    [300, 300, 300, 300],
 ]
 
-learning_rates = [1e-3, 1e-4, 1e-5]
+learning_rates = [1e-5, 1e-6]
              
-dropouts=[False, True]
+dropouts=[True]
 
 for layers in layer_set:
     for dropout in dropouts:
