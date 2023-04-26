@@ -1,6 +1,8 @@
 # Flight-Delay-Prediction
 
-Predicting flight delays with deep learning
+Final project for CSCI 5525: Advanced Machine Learning at University of Minnesota by Adam Bilski, Sam Penders, and Hung-Da Wen.
+
+Predicting flight delays with deep learning.
 
 ## Data
 
